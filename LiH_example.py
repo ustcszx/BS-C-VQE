@@ -8,7 +8,41 @@ import joblib as jb
 from qiskit.quantum_info import SparsePauliOp
 from numba import njit,prange
 #%%
-def linear_optics(m,para):
+def linear_optics(m,n,para):
+    dype = np.complex64
+    occupied=np.append(np.arange(int(n/2)),np.arange(int(m/2),int(m/2)+int(n/2)))
+    virtual=np.append(np.arange(int(n/2),int(m/2)),np.arange(int(m/2)+int(n/2),m))
+    H=np.zeros((m,m),dtype=dype)
+    for i in range(m):
+        H[i,i]=para[i]
+    count=0
+    for i in occupied:
+        for j in virtual:
+            H[i,j]=para[m+count]+1j*para[m+count+1]
+            H[j,i]=para[m+count]-1j*para[m+count+1]
+            count+=2
+    num=0
+    for i in range(m-n):
+        for j in range(i):
+            H[virtual[i],virtual[j]]=para[m+count+num]+1j*para[m+count+num+1]
+            H[virtual[j],virtual[i]]=para[m+count+num]-1j*para[m+count+num+1]
+            num+=2
+    result=expm(-1j*H)
+    return result
+
+def lopanum(m,n):
+    result=m
+    occupied=np.append(np.arange(int(n/2)),np.arange(int(m/2),int(m/2)+int(n/2)))
+    virtual=np.append(np.arange(int(n/2),int(m/2)),np.arange(int(m/2)+int(n/2),m))
+    for i in occupied:
+        for j in virtual:
+            result+=2
+    for i in range(m-n):
+        for j in range(i):
+            result+=2
+    return result
+
+def linear_fermion(m,para):
     dype = np.complex64
     H=np.zeros((m,m),dtype=dype)
     for i in range(m):
@@ -109,7 +143,7 @@ def projector(hf_state,basis_2,Ub):
     result=np.sum(res)
     return result
 
-#%% LiH bond length=1.0 example
+#%% LiH bond length=1.0 example, using BS&HF
 if __name__ == '__main__':
     dype = np.complex64
     cpu_num=1
@@ -117,11 +151,10 @@ if __name__ == '__main__':
     #basic
     n=2 # number of electrons
     m=6 # number of orbitalss
-    pnum=m+2*np.sum(np.arange(1,m))+m+2*np.sum(np.arange(1,m))
+    onum=lopanum(m,n)
+    fnum=m+2*np.sum(np.arange(1,m))
+    pnum=onum+fnum
     hf_state=np.array([1,0,0,1,0,0]) # initial state
-    #cobyla
-    maxit=20000
-    rhobeg=3
     #setting
     repetition=1
     bond='1.0' #bond length
@@ -147,8 +180,8 @@ if __name__ == '__main__':
         expt_history=[]
         proj_history=[]
         def expt(parain):
-            Ub=linear_optics(m,parain[0:int(pnum/2)])
-            Uf=linear_optics(m,parain[int(pnum/2):pnum])
+            Ub=linear_optics(m,n,parain[0:onum])
+            Uf=linear_fermion(m,parain[onum:pnum])
             bslist=BSlist(hf_state,basis_2_posi,Ub)
             fslist=FSlist(basis_2_posi,Uf)
             project=np.sum(np.abs(bslist)**2) 
@@ -164,7 +197,7 @@ if __name__ == '__main__':
             return result
         print("Experiment: ", i)
         parain=paralist[i]
-        opt_result = minimize(expt, parain, method='COBYLA', tol=1e-15,options={'rhobeg': rhobeg, 'maxiter': maxit, 'disp': True, 'catol': 0.0002})
+        opt_result = minimize(expt, parain, method='L-BFGS-B', tol=1e-15,options={'maxfun': 20000, 'maxiter':20000, 'ftol':2.220446049250313e-15, 'eps':1e-04,})
         plt.plot(expt_history)
         plt.hlines(ge, xmin=0, xmax=len(expt_history), label='ground', color='black', linestyle='dashed')
         plt.xlabel("Iteration")
